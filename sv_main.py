@@ -150,33 +150,58 @@ if __name__ == '__main__':
 	while run:
 		now = datetime.now()
 		try:
+			# Création d'un port d'écoute Socket
 			socket_ecoute = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			socket_ecoute.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			socket_ecoute.bind(('10.0.7.55', 5010))
 			socket_ecoute.listen()
 			connexion_client, adresse_client = socket_ecoute.accept()
 
+			# Ligne bloquante, attente d'un paquet reçu
 			reponse = connexion_client.recv(1024)
+			# Si la réponse n'est pas nulle
 			if reponse != "":
+				# La réponse sous format texte brute est transformé en objet structuré JSON 
 				req = json.loads(reponse)
+
+				# Si l'objet de la requête est une demande d'autorisation
 				if(req["object"] == "req_UserAccess"):
+					# Si la personne ayant l'uid correspondant à celle reçu est autorisé
 					if(badgeuse.verifAutorisation(req["uuid"]) == True):
+						# Récupère l'objet Personne, contenant les informations (nom, accès)
 						personne = badgeuse.getPersonneFromUID(req["uuid"])
+						# Ajout du passage dans l'historique (base de donnée)
 						badgeuse.ajoutPassage(personne.getUid(), personne.getNom(), personne.getAccess())
+						# Création d'un texte brute (objet JSON) contenant la réponse, (accès autorisé pour l'uid XXXX)
+						# Et envoi la réponse au dispositif ayant fait la requête
 						connexion_client.send(personne.parse(req["packet_id"]).encode())
+					# Si la personne ayant l'uid correspondant à celle reçu n'est pas autorisé
 					else:
+						# Récupère les données de la personne ayant l'uuid
 						personne = badgeuse.getPersonneFromUID(req["uuid"])
 						if(personne != False):
+							# Si la personne est enregistré dans la base de donnée, ajout d'un passage refusé à l'historique
 							badgeuse.ajoutPassage(personne.getUid(), personne.getNom(), personne.getAccess())
 						else:
+							# Sinon ajouter un passage refusé à l'historique, sous le nom inconnu
 							badgeuse.ajoutPassageInconnu(req["uuid"], "Inconnu au bataillon", 0)
+						# Création d'un texte brute (objet JSON) contenant la réponse, (accès non autorisé pour l'uid XXXX)
+						# Et envoi la réponse au dispositif ayant fait la requête
 						connexion_client.send((json.dumps({"object": "res_UserAccess", "packet_id": req["packet_id"], "access": "false"})).encode())
+				
+				# Si l'objet de la requête une vérification du mode de la badgeuse.
 				if(req["object"] == "req_Mode"):
+					# Envoi du mode à la badgeuse
 					MODE = badgeuse.getMode(str(req["badgeuse_id"]))
 					connexion_client.send((json.dumps({"object": "res_Mode", "packet_id": req["packet_id"], "mode": str(MODE)})).encode())
+
+				# Si l'objet de la requête est une activation d'un mode
 				if(req["object"] == "req_setMode"):
+					# Applique le mode demandé par la requête
+					# Pas besoin de réponse
 					badgeuse.setMode(req["badgeuse_id"], req["mode"])
 		finally: 
+			# On s'assure que l'on ferme le socket d'écoute pour éviter tout problème
 		    socket_ecoute.close()
 
 connexion_client.close()
